@@ -557,7 +557,6 @@
   });
 
   mypageBackLink.addEventListener("click", () => {
-    showingMyPage = false;
     goHome();
   });
 
@@ -575,7 +574,6 @@
   });
 
   banAdminBackLink.addEventListener("click", () => {
-    showingBanAdmin = false;
     goHome();
   });
 
@@ -728,6 +726,10 @@
 
   function goHome() {
     location.hash = "";
+    showingMyPage = false;
+    showingBanAdmin = false;
+    currentPlayer = null;
+    render();
   }
 
   function goPlayer(name) {
