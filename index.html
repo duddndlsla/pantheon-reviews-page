@@ -328,6 +328,10 @@
       <p class="section-title">랭킹</p>
       <div class="rank-list" id="rank-list"></div>
 
+      <div id="home-admin-panel" hidden>
+        <button type="button" class="back-btn" id="ban-admin-btn">벤 관리</button>
+      </div>
+
       <p class="section-title">아이디 선택해서 리뷰 남기기</p>
       <div class="player-grid" id="player-grid"></div>
     </section>
@@ -358,7 +362,7 @@
           <button type="submit" class="pill" id="submit-btn">평가 남기기</button>
         </div>
       </form>
-      <p class="locked-note" id="locked-note" hidden>자기 자신에게는 리뷰를 남길 수 없어요</p>
+      <p class="locked-note" id="locked-note" hidden></p>
     </section>
 
     <section>
@@ -373,6 +377,14 @@
         <button type="submit">확인</button>
       </form>
       <div class="review-list" id="review-list"></div>
+    </section>
+  </div>
+
+  <div id="view-ban-admin" hidden>
+    <section>
+      <button type="button" class="back-btn" id="ban-admin-back-link">◀ 랭킹으로 돌아가기</button>
+      <p class="section-title">벤 관리</p>
+      <div class="rank-list" id="ban-list"></div>
     </section>
   </div>
 
@@ -414,9 +426,19 @@
 
   let allReviews = [];
   let profiles = {};
+  let bans = {};
   let currentPlayer = null;
   let currentUser = null;
   let showingMyPage = false;
+  let showingBanAdmin = false;
+
+  function banStatus(name) {
+    const until = bans[name];
+    if (!until) return null;
+    const untilMs = new Date(until).getTime();
+    if (untilMs <= Date.now()) return null;
+    return untilMs;
+  }
 
   function avatarEl(name) {
     const url = profiles[name];
@@ -526,6 +548,7 @@
 
   mypageBtn.addEventListener("click", () => {
     showingMyPage = true;
+    showingBanAdmin = false;
     pendingAvatarBlob = null;
     avatarFileInput.value = "";
     avatarHint.textContent = "";
@@ -537,6 +560,65 @@
     showingMyPage = false;
     goHome();
   });
+
+  // ---------- ban admin ----------
+
+  const banAdminBtn = document.getElementById("ban-admin-btn");
+  const banAdminBackLink = document.getElementById("ban-admin-back-link");
+  const homeAdminPanel = document.getElementById("home-admin-panel");
+  const banList = document.getElementById("ban-list");
+
+  banAdminBtn.addEventListener("click", () => {
+    showingMyPage = false;
+    showingBanAdmin = true;
+    render();
+  });
+
+  banAdminBackLink.addEventListener("click", () => {
+    showingBanAdmin = false;
+    goHome();
+  });
+
+  function renderBanAdmin() {
+    banList.innerHTML = "";
+    PLAYERS.forEach((name) => {
+      const row = document.createElement("div");
+      row.className = "rank-row frame";
+
+      row.appendChild(avatarEl(name));
+
+      const nameEl = document.createElement("div");
+      nameEl.className = "rank-name";
+      nameEl.textContent = name;
+      row.appendChild(nameEl);
+
+      const until = banStatus(name);
+      const status = document.createElement("div");
+      status.className = "hint";
+      status.style.marginRight = "12px";
+      status.textContent = until
+        ? `금지 중 (${Math.max(1, Math.ceil((until - Date.now()) / 60000))}분 남음)`
+        : "정상";
+      row.appendChild(status);
+
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "btn-small " + (until ? "btn-reply" : "btn-delete");
+      btn.textContent = until ? "금지 해제" : "1시간 금지";
+      btn.addEventListener("click", () => toggleBan(name, !!until));
+      row.appendChild(btn);
+
+      banList.appendChild(row);
+    });
+  }
+
+  async function toggleBan(name, currentlyBanned) {
+    const action = currentlyBanned ? "unban" : "ban";
+    const result = await callAdmin(action, { id: name }).catch(() => null);
+    if (!result || !result.ok) {
+      alert("처리에 실패했어요");
+    }
+  }
 
   async function resizeImage(file, maxSize) {
     const bitmap = await createImageBitmap(file);
@@ -654,6 +736,7 @@
 
   window.addEventListener("hashchange", () => {
     showingMyPage = false;
+    showingBanAdmin = false;
     currentPlayer = parseHash();
     render();
   });
@@ -670,6 +753,7 @@
   const viewHome = document.getElementById("view-home");
   const viewPlayer = document.getElementById("view-player");
   const viewMypage = document.getElementById("view-mypage");
+  const viewBanAdmin = document.getElementById("view-ban-admin");
   const rankList = document.getElementById("rank-list");
   const playerGrid = document.getElementById("player-grid");
   const playerHeading = document.getElementById("player-heading");
@@ -686,6 +770,7 @@
 
   function renderHome() {
     totalCountEl.textContent = String(allReviews.length);
+    homeAdminPanel.hidden = !isAdmin;
 
     const ranked = PLAYERS.map((name) => ({ name, ...statsFor(name) }));
     ranked.sort((a, b) => {
@@ -769,8 +854,15 @@
       : `${currentPlayer} · 아직 후기 없음`;
 
     const isSelf = currentPlayer === currentUser;
-    reviewForm.hidden = isSelf;
-    lockedNote.hidden = !isSelf;
+    const myBanUntil = banStatus(currentUser);
+    reviewForm.hidden = isSelf || !!myBanUntil;
+    lockedNote.hidden = !(isSelf || myBanUntil);
+    if (isSelf) {
+      lockedNote.textContent = "자기 자신에게는 리뷰를 남길 수 없어요";
+    } else if (myBanUntil) {
+      const mins = Math.max(1, Math.ceil((myBanUntil - Date.now()) / 60000));
+      lockedNote.textContent = `일시적으로 리뷰 작성이 금지됐어요 (${mins}분 후 가능)`;
+    }
 
     if (rows.length === 0) {
       listEl.innerHTML = '<p class="empty">아직 후기가 없어요. 첫 후기를 남겨보세요!</p>';
@@ -863,10 +955,20 @@
     if (showingMyPage) {
       viewHome.hidden = true;
       viewPlayer.hidden = true;
+      viewBanAdmin.hidden = true;
       viewMypage.hidden = false;
       return;
     }
+    if (showingBanAdmin) {
+      viewHome.hidden = true;
+      viewPlayer.hidden = true;
+      viewMypage.hidden = true;
+      viewBanAdmin.hidden = false;
+      renderBanAdmin();
+      return;
+    }
     viewMypage.hidden = true;
+    viewBanAdmin.hidden = true;
     if (currentPlayer) {
       viewHome.hidden = true;
       viewPlayer.hidden = false;
@@ -963,6 +1065,13 @@
     const rating = Number(starPicker.dataset.rating);
     const comment = commentInput.value.trim();
 
+    const myBanUntil = banStatus(currentUser);
+    if (myBanUntil) {
+      const mins = Math.max(1, Math.ceil((myBanUntil - Date.now()) / 60000));
+      hint.textContent = `일시적으로 리뷰 작성이 금지됐어요 (${mins}분 후 가능)`;
+      hint.classList.add("error");
+      return;
+    }
     if (!rating) {
       hint.textContent = "별점을 선택해주세요";
       hint.classList.add("error");
@@ -1025,6 +1134,39 @@
     render();
   }
 
+  async function loadBans() {
+    const { data, error } = await client.from("bans").select("*");
+    if (error) {
+      console.error(error);
+      return;
+    }
+    bans = {};
+    data.forEach((b) => {
+      bans[b.name] = b.banned_until;
+    });
+    render();
+  }
+
+  client
+    .channel("bans-realtime")
+    .on(
+      "postgres_changes",
+      { event: "INSERT", schema: "public", table: "bans" },
+      (payload) => {
+        bans[payload.new.name] = payload.new.banned_until;
+        render();
+      }
+    )
+    .on(
+      "postgres_changes",
+      { event: "UPDATE", schema: "public", table: "bans" },
+      (payload) => {
+        bans[payload.new.name] = payload.new.banned_until;
+        render();
+      }
+    )
+    .subscribe();
+
   client
     .channel("profiles-realtime")
     .on(
@@ -1083,6 +1225,7 @@
   trySavedSession();
   loadReviews();
   loadProfiles();
+  loadBans();
 </script>
 </body>
 </html>
