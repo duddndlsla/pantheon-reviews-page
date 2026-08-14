@@ -122,6 +122,52 @@
   .review-time{margin-top:8px;font-size:11px;color:var(--ink-dim);}
   .empty{color:var(--ink-dim);font-size:14px;text-align:center;padding:24px 0;}
 
+  .reply-box{
+    margin-top:10px;
+    padding:10px 12px;
+    background:var(--bg-soft);
+    border-left:2px solid var(--gold);
+    border-radius:8px;
+    font-size:13px;
+    line-height:1.5;
+  }
+  .reply-box .reply-label{color:var(--gold);font-weight:700;margin-right:6px;}
+  .reply-box .reply-text{color:var(--ink);white-space:pre-wrap;}
+
+  .admin-toggle{
+    background:none;border:none;color:var(--ink-dim);font-size:12px;
+    cursor:pointer;text-decoration:underline;padding:0;
+  }
+  .admin-toggle:hover{color:var(--gold);}
+  .admin-bar{display:flex;justify-content:flex-end;margin:-8px 0 12px;}
+  .admin-login{
+    display:flex;gap:8px;margin:-8px 0 12px;justify-content:flex-end;
+  }
+  .admin-login input{
+    background:var(--bg-soft);border:1px solid var(--border);border-radius:8px;
+    padding:6px 10px;color:var(--ink);font-size:13px;max-width:160px;
+  }
+  .admin-login button{
+    background:var(--gold);color:#141522;border:none;border-radius:8px;
+    padding:6px 12px;font-size:13px;font-weight:700;cursor:pointer;
+  }
+  .admin-badge{
+    display:inline-block;font-size:11px;color:var(--gold);border:1px solid var(--border);
+    border-radius:999px;padding:2px 10px;margin-left:8px;
+  }
+  .review-admin-controls{
+    display:flex;gap:8px;align-items:center;margin-top:10px;
+  }
+  .review-admin-controls input{
+    flex:1;background:var(--bg-soft);border:1px solid var(--border);border-radius:8px;
+    padding:6px 10px;color:var(--ink);font-size:13px;
+  }
+  .btn-small{
+    border:none;border-radius:8px;padding:6px 10px;font-size:12px;font-weight:700;cursor:pointer;
+  }
+  .btn-reply{background:var(--gold);color:#141522;}
+  .btn-delete{background:var(--crimson);color:#f2ede1;}
+
   footer{text-align:center;padding:28px 20px 0;color:var(--ink-dim);font-size:12px;}
 </style>
 </head>
@@ -163,7 +209,7 @@
       </div>
       <div>
         <label for="comment">한줄 평가</label><br />
-        <textarea id="comment" rows="3" maxlength="300" placeholder="이영우02의 판테온 플레이, 이번엔 어떄나요?"></textarea>
+        <textarea id="comment" rows="3" maxlength="300" placeholder="이영우02의 판테온 플레이, 이번엔 어땠나요?"></textarea>
       </div>
       <div class="submit-row">
         <span class="hint" id="form-hint"></span>
@@ -173,7 +219,16 @@
   </section>
 
   <section>
-    <p class="section-title">모두의 후기</p>
+    <p class="section-title">
+      모두의 후기<span class="admin-badge" id="admin-badge" hidden>관리자 모드</span>
+    </p>
+    <div class="admin-bar" id="admin-bar">
+      <button type="button" class="admin-toggle" id="admin-toggle">관리자 모드</button>
+    </div>
+    <form class="admin-login" id="admin-login" hidden>
+      <input type="password" id="admin-passcode" placeholder="비밀번호" autocomplete="off" />
+      <button type="submit">확인</button>
+    </form>
     <div class="review-list" id="review-list">
       <p class="empty">아직 후기가 없어요. 첫 후기를 남겨보세요!</p>
     </div>
@@ -186,7 +241,77 @@
 <script>
   const SUPABASE_URL = "https://tacznkiksfgevznberzb.supabase.co";
   const SUPABASE_KEY = "sb_publishable_y75nFzi_w4MnIQoB_eMLng_xIK5u8ia";
+  const ADMIN_FN_URL = "https://tacznkiksfgevznberzb.supabase.co/functions/v1/pantheon-admin-e8551536c8d3f6d5";
   const client = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+  let adminPasscode = localStorage.getItem("pantheon_admin_passcode") || "";
+  let isAdmin = false;
+
+  async function callAdmin(action, extra) {
+    const res = await fetch(ADMIN_FN_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, passcode: adminPasscode, ...extra }),
+    });
+    return res.json();
+  }
+
+  const adminToggle = document.getElementById("admin-toggle");
+  const adminLogin = document.getElementById("admin-login");
+  const adminPasscodeInput = document.getElementById("admin-passcode");
+  const adminBadge = document.getElementById("admin-badge");
+  const adminBar = document.getElementById("admin-bar");
+
+  function setAdminUi(on) {
+    isAdmin = on;
+    adminBadge.hidden = !on;
+    adminBar.hidden = on;
+    adminLogin.hidden = true;
+    renderReviews();
+  }
+
+  adminToggle.addEventListener("click", () => {
+    adminLogin.hidden = false;
+    adminBar.hidden = true;
+  });
+
+  adminLogin.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const value = adminPasscodeInput.value.trim();
+    if (!value) return;
+    adminPasscode = value;
+    const check = await callAdmin("verify", {}).catch(() => null);
+    if (check && check.ok) {
+      localStorage.setItem("pantheon_admin_passcode", adminPasscode);
+      setAdminUi(true);
+    } else {
+      adminPasscode = localStorage.getItem("pantheon_admin_passcode") || "";
+      alert("비밀번호가 틀렸어요");
+      adminBar.hidden = false;
+      adminLogin.hidden = true;
+    }
+  });
+
+  if (adminPasscode) {
+    callAdmin("verify", {}).then((r) => {
+      if (r && r.ok) setAdminUi(true);
+    }).catch(() => {});
+  }
+
+  async function deleteReview(id) {
+    if (!confirm("이 후기를 삭제할까요?")) return;
+    const result = await callAdmin("delete", { id }).catch(() => null);
+    if (!result || !result.ok) {
+      alert("삭제에 실패했어요");
+    }
+  }
+
+  async function submitReply(id, text) {
+    const result = await callAdmin("reply", { id, reply: text }).catch(() => null);
+    if (!result || !result.ok) {
+      alert("답글 등록에 실패했어요");
+    }
+  }
 
   const starPicker = document.getElementById("star-picker");
   const starButtons = Array.from(starPicker.querySelectorAll("button"));
@@ -273,6 +398,48 @@
       time.textContent = timeAgo(r.created_at);
       card.appendChild(time);
 
+      if (r.reply) {
+        const replyBox = document.createElement("div");
+        replyBox.className = "reply-box";
+        const label = document.createElement("span");
+        label.className = "reply-label";
+        label.textContent = "이영우02:";
+        const text = document.createElement("span");
+        text.className = "reply-text";
+        text.textContent = r.reply;
+        replyBox.appendChild(label);
+        replyBox.appendChild(text);
+        card.appendChild(replyBox);
+      }
+
+      if (isAdmin) {
+        const controls = document.createElement("div");
+        controls.className = "review-admin-controls";
+
+        const replyInput = document.createElement("input");
+        replyInput.type = "text";
+        replyInput.maxLength = 300;
+        replyInput.placeholder = "답글 남기기";
+        replyInput.value = r.reply || "";
+
+        const replyBtn = document.createElement("button");
+        replyBtn.type = "button";
+        replyBtn.className = "btn-small btn-reply";
+        replyBtn.textContent = "답글 저장";
+        replyBtn.addEventListener("click", () => submitReply(r.id, replyInput.value));
+
+        const deleteBtn = document.createElement("button");
+        deleteBtn.type = "button";
+        deleteBtn.className = "btn-small btn-delete";
+        deleteBtn.textContent = "삭제";
+        deleteBtn.addEventListener("click", () => deleteReview(r.id));
+
+        controls.appendChild(replyInput);
+        controls.appendChild(replyBtn);
+        controls.appendChild(deleteBtn);
+        card.appendChild(controls);
+      }
+
       listEl.appendChild(card);
     });
   }
@@ -298,6 +465,22 @@
       { event: "INSERT", schema: "public", table: "reviews" },
       (payload) => {
         reviews = [payload.new, ...reviews];
+        renderReviews();
+      }
+    )
+    .on(
+      "postgres_changes",
+      { event: "UPDATE", schema: "public", table: "reviews" },
+      (payload) => {
+        reviews = reviews.map((r) => (r.id === payload.new.id ? payload.new : r));
+        renderReviews();
+      }
+    )
+    .on(
+      "postgres_changes",
+      { event: "DELETE", schema: "public", table: "reviews" },
+      (payload) => {
+        reviews = reviews.filter((r) => r.id !== payload.old.id);
         renderReviews();
       }
     )
