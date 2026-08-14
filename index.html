@@ -572,7 +572,7 @@
     avatarSaveBtn.disabled = true;
     avatarHint.textContent = "업로드 중...";
 
-    const path = `${encodeURIComponent(currentUser)}.jpg`;
+    const path = `avatar-${PLAYERS.indexOf(currentUser)}.jpg`;
     const { error: upErr } = await client.storage
       .from("avatars")
       .upload(path, pendingAvatarBlob, { upsert: true, contentType: "image/jpeg" });
