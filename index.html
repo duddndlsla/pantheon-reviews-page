@@ -250,6 +250,21 @@
 
   footer{text-align:center;padding:28px 20px 0;color:var(--ink-dim);font-size:12px;}
 
+  .avatar{
+    width:24px;height:24px;border-radius:50%;object-fit:cover;
+    background:var(--bg-field);border:1px solid var(--gold-deep);flex-shrink:0;
+  }
+  .avatar-lg{
+    width:96px;height:96px;border-radius:50%;object-fit:cover;background-size:cover;
+    background-position:center;background-color:var(--bg-field);border:2px solid var(--gold);
+  }
+  .mypage-card{
+    padding:28px;display:flex;flex-direction:column;align-items:center;gap:16px;
+  }
+  .mypage-card input[type=file]{
+    color:var(--ink-dim);font-size:13px;
+  }
+
   /* ---- login gate ---- */
   #login-gate{
     min-height:100vh;
@@ -293,7 +308,7 @@
   <div class="eyebrow">League of Legends · Tier Check</div>
   <h1>내 실력 <span>ㅁㅌㅊ?</span></h1>
   <p class="tagline">같이 게임하는 친구들 실력, 솔직한 평가로 확인해보세요</p>
-  <p class="session-line"><b id="session-name"></b>님 환영합니다<button type="button" class="logout-btn" id="logout-btn">로그아웃</button></p>
+  <p class="session-line"><b id="session-name"></b>님 환영합니다<button type="button" class="logout-btn" id="mypage-btn">마이페이지</button><button type="button" class="logout-btn" id="logout-btn">로그아웃</button></p>
   <div class="stats">
     <div class="stat">
       <div class="num" id="total-count">0</div>
@@ -361,6 +376,19 @@
     </section>
   </div>
 
+  <div id="view-mypage" hidden>
+    <section>
+      <button type="button" class="back-btn" id="mypage-back-link">◀ 랭킹으로 돌아가기</button>
+      <p class="section-title">마이페이지</p>
+      <div class="mypage-card frame">
+        <div class="avatar-lg" id="mypage-avatar-preview"></div>
+        <input type="file" id="avatar-file-input" accept="image/*" />
+        <span class="hint" id="avatar-hint"></span>
+        <button type="button" class="pill-action" id="avatar-save-btn">프로필 사진 저장</button>
+      </div>
+    </section>
+  </div>
+
 </div>
 
 <footer>같이 게임한 친구들, 실시간으로 남기는 평가 페이지</footer>
@@ -385,8 +413,24 @@
   ];
 
   let allReviews = [];
+  let profiles = {};
   let currentPlayer = null;
   let currentUser = null;
+  let showingMyPage = false;
+
+  function avatarEl(name) {
+    const url = profiles[name];
+    if (url) {
+      const img = document.createElement("img");
+      img.className = "avatar";
+      img.src = url;
+      img.alt = name;
+      return img;
+    }
+    const div = document.createElement("div");
+    div.className = "avatar";
+    return div;
+  }
 
   async function callFn(payload) {
     const res = await fetch(ADMIN_FN_URL, {
@@ -465,6 +509,100 @@
     showGate();
   });
 
+  // ---------- my page / avatar ----------
+
+  const mypageBtn = document.getElementById("mypage-btn");
+  const mypageBackLink = document.getElementById("mypage-back-link");
+  const mypageAvatarPreview = document.getElementById("mypage-avatar-preview");
+  const avatarFileInput = document.getElementById("avatar-file-input");
+  const avatarSaveBtn = document.getElementById("avatar-save-btn");
+  const avatarHint = document.getElementById("avatar-hint");
+
+  let pendingAvatarBlob = null;
+
+  function setAvatarPreview(url) {
+    mypageAvatarPreview.style.backgroundImage = url ? `url(${url})` : "none";
+  }
+
+  mypageBtn.addEventListener("click", () => {
+    showingMyPage = true;
+    pendingAvatarBlob = null;
+    avatarFileInput.value = "";
+    avatarHint.textContent = "";
+    setAvatarPreview(profiles[currentUser]);
+    render();
+  });
+
+  mypageBackLink.addEventListener("click", () => {
+    showingMyPage = false;
+    goHome();
+  });
+
+  async function resizeImage(file, maxSize) {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, maxSize / Math.max(bitmap.width, bitmap.height));
+    const w = Math.max(1, Math.round(bitmap.width * scale));
+    const h = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    canvas.getContext("2d").drawImage(bitmap, 0, 0, w, h);
+    return new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.85));
+  }
+
+  avatarFileInput.addEventListener("change", async () => {
+    const file = avatarFileInput.files[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      avatarHint.textContent = "이미지 파일만 업로드할 수 있어요";
+      return;
+    }
+    avatarHint.textContent = "미리보기 준비 중...";
+    const resized = await resizeImage(file, 256);
+    pendingAvatarBlob = resized;
+    setAvatarPreview(URL.createObjectURL(resized));
+    avatarHint.textContent = "저장 버튼을 눌러 반영하세요";
+  });
+
+  avatarSaveBtn.addEventListener("click", async () => {
+    if (!pendingAvatarBlob) {
+      avatarHint.textContent = "먼저 사진을 선택해주세요";
+      return;
+    }
+    avatarSaveBtn.disabled = true;
+    avatarHint.textContent = "업로드 중...";
+
+    const path = `${encodeURIComponent(currentUser)}.jpg`;
+    const { error: upErr } = await client.storage
+      .from("avatars")
+      .upload(path, pendingAvatarBlob, { upsert: true, contentType: "image/jpeg" });
+
+    if (upErr) {
+      avatarHint.textContent = "업로드에 실패했어요";
+      avatarSaveBtn.disabled = false;
+      return;
+    }
+
+    const { data: pub } = client.storage.from("avatars").getPublicUrl(path);
+    const avatarUrl = pub.publicUrl + "?t=" + Date.now();
+
+    const { error: dbErr } = await client
+      .from("profiles")
+      .upsert({ name: currentUser, avatar_url: avatarUrl });
+
+    avatarSaveBtn.disabled = false;
+
+    if (dbErr) {
+      avatarHint.textContent = "저장에 실패했어요";
+      return;
+    }
+
+    profiles[currentUser] = avatarUrl;
+    pendingAvatarBlob = null;
+    avatarHint.textContent = "프로필 사진이 저장된었어요!";
+    render();
+  });
+
   async function trySavedSession() {
     const raw = localStorage.getItem("member_session");
     if (!raw) {
@@ -515,6 +653,7 @@
   }
 
   window.addEventListener("hashchange", () => {
+    showingMyPage = false;
     currentPlayer = parseHash();
     render();
   });
@@ -530,6 +669,7 @@
 
   const viewHome = document.getElementById("view-home");
   const viewPlayer = document.getElementById("view-player");
+  const viewMypage = document.getElementById("view-mypage");
   const rankList = document.getElementById("rank-list");
   const playerGrid = document.getElementById("player-grid");
   const playerHeading = document.getElementById("player-heading");
@@ -565,6 +705,8 @@
       num.className = "rank-num";
       num.textContent = String(i + 1);
 
+      const avatar = avatarEl(p.name);
+
       const name = document.createElement("div");
       name.className = "rank-name";
       name.textContent = p.name;
@@ -588,6 +730,7 @@
       count.textContent = `${p.count}건`;
 
       row.appendChild(num);
+      row.appendChild(avatar);
       row.appendChild(name);
       row.appendChild(stars);
       row.appendChild(avg);
@@ -601,7 +744,13 @@
       btn.type = "button";
       btn.className = "player-pill";
       btn.dataset.player = name;
-      btn.textContent = name;
+      btn.style.display = "inline-flex";
+      btn.style.alignItems = "center";
+      btn.style.gap = "8px";
+      btn.appendChild(avatarEl(name));
+      const label = document.createElement("span");
+      label.textContent = name;
+      btn.appendChild(label);
       if (name === currentUser) {
         const me = document.createElement("span");
         me.className = "me-tag";
@@ -634,13 +783,20 @@
       card.className = "review-card frame";
       const top = document.createElement("div");
       top.className = "review-top";
+      top.style.gap = "8px";
+      const nickWrap = document.createElement("span");
+      nickWrap.style.display = "inline-flex";
+      nickWrap.style.alignItems = "center";
+      nickWrap.style.gap = "8px";
+      nickWrap.appendChild(avatarEl(r.nickname));
       const nick = document.createElement("span");
       nick.className = "nickname";
       nick.textContent = r.nickname;
+      nickWrap.appendChild(nick);
       const stars = document.createElement("span");
       stars.className = "review-stars";
       stars.textContent = starString(r.rating);
-      top.appendChild(nick);
+      top.appendChild(nickWrap);
       top.appendChild(stars);
       card.appendChild(top);
 
@@ -704,6 +860,13 @@
 
   function render() {
     if (!currentUser) return;
+    if (showingMyPage) {
+      viewHome.hidden = true;
+      viewPlayer.hidden = true;
+      viewMypage.hidden = false;
+      return;
+    }
+    viewMypage.hidden = true;
     if (currentPlayer) {
       viewHome.hidden = true;
       viewPlayer.hidden = false;
@@ -849,6 +1012,39 @@
     render();
   }
 
+  async function loadProfiles() {
+    const { data, error } = await client.from("profiles").select("*");
+    if (error) {
+      console.error(error);
+      return;
+    }
+    profiles = {};
+    data.forEach((p) => {
+      profiles[p.name] = p.avatar_url;
+    });
+    render();
+  }
+
+  client
+    .channel("profiles-realtime")
+    .on(
+      "postgres_changes",
+      { event: "INSERT", schema: "public", table: "profiles" },
+      (payload) => {
+        profiles[payload.new.name] = payload.new.avatar_url;
+        render();
+      }
+    )
+    .on(
+      "postgres_changes",
+      { event: "UPDATE", schema: "public", table: "profiles" },
+      (payload) => {
+        profiles[payload.new.name] = payload.new.avatar_url;
+        render();
+      }
+    )
+    .subscribe();
+
   client
     .channel("reviews-realtime")
     .on(
@@ -886,6 +1082,7 @@
   currentPlayer = parseHash();
   trySavedSession();
   loadReviews();
+  loadProfiles();
 </script>
 </body>
 </html>
